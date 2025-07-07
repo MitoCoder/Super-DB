@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DB Manager - Gerenciador de Banco de Dados</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@tanstack/react-query@5/build/modern/index.umd.js"></script>
+    <script src="https://unpkg.com/antd@5.21.7/dist/antd.min.js"></script>
+    <link href="https://unpkg.com/antd@5.21.7/dist/reset.css" rel="stylesheet">
+    <link href="https://unpkg.com/antd@5.21.7/dist/antd.min.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+                sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background-color: #f5f5f5;
+        }
+        
+        #root {
+            min-height: 100vh;
+        }
+        
+        .app-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        
+        .content {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .auth-form {
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .database-manager {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .database-list {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .database-content {
+            flex: 2;
+            min-width: 400px;
+        }
+        
+        @media (max-width: 768px) {
+            .database-manager {
+                flex-direction: column;
+            }
+            
+            .database-list,
+            .database-content {
+                min-width: 100%;
+            }
+        }
+        
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+        }
+        
+        .error-message {
+            color: #ff4d4f;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .language-selector {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+        const { QueryClient, QueryClientProvider, useQuery, useMutation, useQueryClient } = ReactQuery;
+        const { 
+            Button, 
+            Card, 
+            Form, 
+            Input, 
+            Table, 
+            Space, 
+            Typography, 
+            message, 
+            Modal, 
+            Select, 
+            Spin, 
+            Alert,
+            Layout,
+            Menu,
+            Dropdown,
+            Divider,
+            Row,
+            Col,
+            Badge,
+            Popconfirm,
+            Tabs,
+            Tag,
+            Switch
+        } = antd;
+        
+        const { Title, Text } = Typography;
+        const { Content, Header } = Layout;
+        const { Option } = Select;
+        const { TabPane } = Tabs;
+        
+        // Configuração do QueryClient
+        const queryClient = new QueryClient({
+            defaultOptions: {
+                queries: {
+                    retry: 1,
+                    refetchOnWindowFocus: false,
+                },
+            },
+        });
+        
+        // Utilitários de API
+        const apiRequest = async (url, options = {}) => {
+            const config = {
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                ...options,
+            };
+            
+            const response = await fetch(url, config);
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(`${response.status}: ${errorData.message || response.statusText}`);
+            }
+            
+            return response.json();
+        };
+        
+        // Hook de tradução
+        const useTranslation = () => {
+            const [language, setLanguage] = useState(() => {
+                return localStorage.getItem('language') || 'pt';
+            });
+            
+            const translations = {
+                pt: {
+                    // Autenticação
+                    login: 'Entrar',
+                    register: 'Registrar',
+                    username: 'Nome de usuário',
+                    password: 'Senha',
+                    confirmPassword: 'Confirmar senha',
+                    firstName: 'Primeiro nome',
+                    lastName: 'Sobrenome',
+                    email: 'Email',
+                    logout: 'Sair',
+                    
+                    // Banco de dados
+                    databases: 'Bancos de Dados',
+                    createDatabase: 'Criar Banco',
+                    databaseName: 'Nome do Banco',
+                    records: 'Registros',
+                    addRecord: 'Adicionar Registro',
+                    editRecord: 'Editar Registro',
+                    deleteRecord: 'Excluir Registro',
+                    
+                    // Mensagens
+                    loginSuccess: 'Login realizado com sucesso!',
+                    registerSuccess: 'Registro realizado com sucesso!',
+                    createDatabaseSuccess: 'Banco criado com sucesso!',
+                    deleteSuccess: 'Excluído com sucesso!',
+                    
+                    // Geral
+                    save: 'Salvar',
+                    cancel: 'Cancelar',
+                    edit: 'Editar',
+                    delete: 'Excluir',
+                    actions: 'Ações',
+                    loading: 'Carregando...',
+                    error: 'Erro',
+                    success: 'Sucesso',
+                    confirm: 'Confirmar',
+                    welcome: 'Bem-vindo',
+                    dbManager: 'Gerenciador de Banco de Dados',
+                    selectDatabase: 'Selecione um banco de dados',
+                    noRecords: 'Nenhum registro encontrado',
+                    
+                    // Validação
+                    required: 'Este campo é obrigatório',
+                    passwordMatch: 'As senhas não coincidem',
+                    minLength: 'Mínimo de {min} caracteres',
+                },
+                en: {
+                    // Authentication
+                    login: 'Login',
+                    register: 'Register',
+                    username: 'Username',
+                    password: 'Password',
+                    confirmPassword: 'Confirm Password',
+                    firstName: 'First Name',
+                    lastName: 'Last Name',
+                    email: 'Email',
+                    logout: 'Logout',
+                    
+                    // Database
+                    databases: 'Databases',
+                    createDatabase: 'Create Database',
+                    databaseName: 'Database Name',
+                    records: 'Records',
+                    addRecord: 'Add Record',
+                    editRecord: 'Edit Record',
+                    deleteRecord: 'Delete Record',
+                    
+                    // Messages
+                    loginSuccess: 'Login successful!',
+                    registerSuccess: 'Registration successful!',
+                    createDatabaseSuccess: 'Database created successfully!',
+                    deleteSuccess: 'Deleted successfully!',
+                    
+                    // General
+                    save: 'Save',
+                    cancel: 'Cancel',
+                    edit: 'Edit',
+                    delete: 'Delete',
+                    actions: 'Actions',
+                    loading: 'Loading...',
+                    error: 'Error',
+                    success: 'Success',
+                    confirm: 'Confirm',
+                    welcome: 'Welcome',
+                    dbManager: 'Database Manager',
+                    selectDatabase: 'Select a database',
+                    noRecords: 'No records found',
+                    
+                    // Validation
+                    required: 'This field is required',
+                    passwordMatch: 'Passwords do not match',
+                    minLength: 'Minimum {min} characters',
+                }
+            };
+            
+            const t = useCallback((key, params = {}) => {
+                let translation = translations[language]?.[key] || key;
+                Object.keys(params).forEach(param => {
+                    translation = translation.replace(`{${param}}`, params[param]);
+                });
+                return translation;
+            }, [language]);
+            
+            const changeLanguage = (newLanguage) => {
+                setLanguage(newLanguage);
+                localStorage.setItem('language', newLanguage);
+            };
+            
+            return { t, language, changeLanguage };
+        };
+        
+        // Componente do seletor de idioma
+        const LanguageSelector = () => {
+            const { language, changeLanguage } = useTranslation();
+            
+            return (
+                <div className="language-selector">
+                    <Select
+                        value={language}
+                        onChange={changeLanguage}
+                        style={{ width: 80 }}
+                    >
+                        <Option value="pt">🇧🇷 PT</Option>
+                        <Option value="en">🇺🇸 EN</Option>
+                    </Select>
+                </div>
+            );
+        };
+        
+        // Hook de autenticação
+        const useAuth = () => {
+            const { data: user, isLoading, error } = useQuery({
+                queryKey: ['/api/auth/user'],
+                queryFn: () => apiRequest('/api/auth/user'),
+                retry: false,
+                staleTime: 5 * 60 * 1000,
+            });
+            
+            return {
+                user,
+                isLoading,
+                isAuthenticated: !!user,
+                error
+            };
+        };
+        
+        // Componente de autenticação
+        const AuthPage = () => {
+            const [isLogin, setIsLogin] = useState(true);
+            const [form] = Form.useForm();
+            const queryClient = useQueryClient();
+            const { t } = useTranslation();
+            
+            const loginMutation = useMutation({
+                mutationFn: (data) => apiRequest('/api/auth/login', {
+                    method: 'POST',
+                    body: JSON.stringify(data),
+                }),
+                onSuccess: () => {
+                    message.success(t('loginSuccess'));
+                    queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+                },
+                onError: (error) => {
+                    message.error(error.message);
+                },
+            });
+            
+            const registerMutation = useMutation({
+                mutationFn: (data) => apiRequest('/api/auth/register', {
+                    method: 'POST',
+                    body: JSON.stringify(data),
+                }),
+                onSuccess: () => {
+                    message.success(t('registerSuccess'));
+                    setIsLogin(true);
+                    form.resetFields();
+                },
+                onError: (error) => {
+                    message.error(error.message);
+                },
+            });
+            
+            const onFinish = (values) => {
+                if (isLogin) {
+                    loginMutation.mutate(values);
+                } else {
+                    registerMutation.mutate(values);
+                }
+            };
+            
+            return (
+                <div className="auth-form">
+                    <Card>
+                        <Title level={2} style={{ textAlign: 'center', marginBottom: 24 }}>
+                            {t('dbManager')}
+                        </Title>
+                        
+                        <Tabs
+                            activeKey={isLogin ? 'login' : 'register'}
+                            onChange={(key) => setIsLogin(key === 'login')}
+                            centered
+                        >
+                            <TabPane tab={t('login')} key="login">
+                                <Form form={form} onFinish={onFinish} layout="vertical">
+                                    <Form.Item
+                                        name="username"
+                                        label={t('username')}
+                                        rules={[{ required: true, message: t('required') }]}
+                                    >
+                                        <Input />
+                                    </Form.Item>
+                                    
+                                    <Form.Item
+                                        name="password"
+                                        label={t('password')}
+                                        rules={[{ required: true, message: t('required') }]}
+                                    >
+                                        <Input.Password />
+                                    </Form.Item>
+                                    
+                                    <Form.Item>
+                                        <Button
+                                            type="primary"
+                                            htmlType="submit"
+                                            loading={loginMutation.isPending}
+                                            block
+                                        >
+                                            {t('login')}
+                                        </Button>
+                                    </Form.Item>
+                                </Form>
+                            </TabPane>
+                            
+                            <TabPane tab={t('register')} key="register">
+                                <Form form={form} onFinish={onFinish} layout="vertical">
+                                    <Form.Item
+                                        name="username"
+                                        label={t('username')}
+                                        rules={[{ required: true, message: t('required') }]}
+                                    >
+                                        <Input />
+                                    </Form.Item>
+                                    
+                                    <Form.Item
+                                        name="firstName"
+                                        label={t('firstName')}
+                                    >
+                                        <Input />
+                                    </Form.Item>
+                                    
+                                    <Form.Item
+                                        name="lastName"
+                                        label={t('lastName')}
+                                    >
+                                        <Input />
+                                    </Form.Item>
+                                    
+                                    <Form.Item
+                                        name="email"
+                                        label={t('email')}
+                                    >
+                                        <Input type="email" />
+                                    </Form.Item>
+                                    
+                                    <Form.Item
+                                        name="password"
+                                        label={t('password')}
+                                        rules={[{ required: true, message: t('required') }]}
+                                    >
+                                        <Input.Password />
+                                    </Form.Item>
+                                    
+                                    <Form.Item
+                                        name="confirmPassword"
+                                        label={t('confirmPassword')}
+                                        dependencies={['password']}
+                                        rules={[
+                                            { required: true, message: t('required') },
+                                            ({ getFieldValue }) => ({
+                                                validator(_, value) {
+                                                    if (!value || getFieldValue('password') === value) {
+                                                        return Promise.resolve();
+                                                    }
+                                                    return Promise.reject(new Error(t('passwordMatch')));
+                                                },
+                                            }),
+                                        ]}
+                                    >
+                                        <Input.Password />
+                                    </Form.Item>
+                                    
+                                    <Form.Item>
+                                        <Button
+                                            type="primary"
+                                            htmlType="submit"
+                                            loading={registerMutation.isPending}
+                                            block
+                                        >
+                                            {t('register')}
+                                        </Button>
+                                    </Form.Item>
+                                </Form>
+                            </TabPane>
+                        </Tabs>
+                    </Card>
+                </div>
+            );
+        };
+        
+        // Componente do gerenciador de banco de dados
+        const DatabaseManager = ({ user }) => {
+            const [selectedDatabase, setSelectedDatabase] = useState(null);
+            const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+            const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
+            const [editingRecord, setEditingRecord] = useState(null);
+            const [form] = Form.useForm();
+            const [recordForm] = Form.useForm();
+            const queryClient = useQueryClient();
+            const { t } = useTranslation();
+            
+            // Queries
+            const { data: databases = [], isLoading: databasesLoading } = useQuery({
+                queryKey: ['/api/databases'],
+                queryFn: () => apiRequest('/api/databases'),
+            });
+            
+            const { data: records = [], isLoading: recordsLoading } = useQuery({
+                queryKey: ['/api/databases', selectedDatabase?.key, 'records'],
+                queryFn: () => apiRequest(`/api/databases/${selectedDatabase.key}/records`),
+                enabled: !!selectedDatabase,
+            });
+            
+            // Mutations
+            const createDatabaseMutation = useMutation({
+                mutationFn: (data) => apiRequest('/api/databases', {
+                    method: 'POST',
+                    body: JSON.stringify(data),
+                }),
+                onSuccess: () => {
+                    message.success(t('createDatabaseSuccess'));
+                    queryClient.invalidateQueries({ queryKey: ['/api/databases'] });
+                    setIsCreateModalOpen(false);
+                    form.resetFields();
+                },
+                onError: (error) => {
+                    message.error(error.message);
+                },
+            });
+            
+            const createRecordMutation = useMutation({
+                mutationFn: (data) => apiRequest(`/api/databases/${selectedDatabase.key}/records`, {
+                    method: 'POST',
+                    body: JSON.stringify(data),
+                }),
+                onSuccess: () => {
+                    message.success(t('success'));
+                    queryClient.invalidateQueries({ queryKey: ['/api/databases', selectedDatabase.key, 'records'] });
+                    setIsRecordModalOpen(false);
+                    recordForm.resetFields();
+                },
+                onError: (error) => {
+                    message.error(error.message);
+                },
+            });
+            
+            const deleteRecordMutation = useMutation({
+                mutationFn: (id) => apiRequest(`/api/databases/${selectedDatabase.key}/records`, {
+                    method: 'DELETE',
+                    body: JSON.stringify({ id }),
+                }),
+                onSuccess: () => {
+                    message.success(t('deleteSuccess'));
+                    queryClient.invalidateQueries({ queryKey: ['/api/databases', selectedDatabase.key, 'records'] });
+                },
+                onError: (error) => {
+                    message.error(error.message);
+                },
+            });
+            
+            const handleLogout = () => {
+                apiRequest('/api/auth/logout', { method: 'POST' })
+                    .then(() => {
+                        queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+                    })
+                    .catch(console.error);
+            };
+            
+            const handleCreateDatabase = (values) => {
+                createDatabaseMutation.mutate(values);
+            };
+            
+            const handleCreateRecord = (values) => {
+                const data = {};
+                Object.keys(values).forEach(key => {
+                    if (values[key] !== undefined && values[key] !== '') {
+                        data[key] = values[key];
+                    }
+                });
+                createRecordMutation.mutate({ data });
+            };
+            
+            const handleDeleteRecord = (id) => {
+                deleteRecordMutation.mutate(id);
+            };
+            
+            const recordColumns = [
+                {
+                    title: 'ID',
+                    dataIndex: 'id',
+                    key: 'id',
+                    width: 80,
+                },
+                {
+                    title: 'Dados',
+                    dataIndex: 'data',
+                    key: 'data',
+                    render: (data) => (
+                        <pre style={{ margin: 0, fontSize: 12 }}>
+                            {JSON.stringify(data, null, 2)}
+                        </pre>
+                    ),
+                },
+                {
+                    title: t('actions'),
+                    key: 'actions',
+                    width: 100,
+                    render: (_, record) => (
+                        <Space>
+                            <Popconfirm
+                                title={`${t('confirm')} ${t('deleteRecord')}?`}
+                                onConfirm={() => handleDeleteRecord(record.id)}
+                            >
+                                <Button type="link" danger size="small">
+                                    {t('delete')}
+                                </Button>
+                            </Popconfirm>
+                        </Space>
+                    ),
+                },
+            ];
+            
+            return (
+                <Layout>
+                    <Header style={{ background: '#fff', padding: '0 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                        <Row justify="space-between" align="middle">
+                            <Col>
+                                <Title level={3} style={{ margin: 0 }}>
+                                    {t('dbManager')}
+                                </Title>
+                            </Col>
+                            <Col>
+                                <Space>
+                                    <Text>{t('welcome')}, {user.firstName || user.username}!</Text>
+                                    <Button onClick={handleLogout}>
+                                        {t('logout')}
+                                    </Button>
+                                </Space>
+                            </Col>
+                        </Row>
+                    </Header>
+                    
+                    <Content style={{ padding: '24px', minHeight: 'calc(100vh - 64px)' }}>
+                        <Row gutter={[24, 24]}>
+                            <Col xs={24} md={8}>
+                                <Card
+                                    title={t('databases')}
+                                    extra={
+                                        <Button
+                                            type="primary"
+                                            onClick={() => setIsCreateModalOpen(true)}
+                                        >
+                                            {t('createDatabase')}
+                                        </Button>
+                                    }
+                                >
+                                    {databasesLoading ? (
+                                        <Spin />
+                                    ) : (
+                                        <Space direction="vertical" style={{ width: '100%' }}>
+                                            {databases.map((db) => (
+                                                <Card.Grid
+                                                    key={db.key}
+                                                    style={{ width: '100%', cursor: 'pointer' }}
+                                                    onClick={() => setSelectedDatabase(db)}
+                                                >
+                                                    <Space direction="vertical">
+                                                        <Text strong>{db.name}</Text>
+                                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                                            {db.key}
+                                                        </Text>
+                                                    </Space>
+                                                </Card.Grid>
+                                            ))}
+                                        </Space>
+                                    )}
+                                </Card>
+                            </Col>
+                            
+                            <Col xs={24} md={16}>
+                                <Card
+                                    title={selectedDatabase ? `${t('records')} - ${selectedDatabase.name}` : t('selectDatabase')}
+                                    extra={
+                                        selectedDatabase && (
+                                            <Button
+                                                type="primary"
+                                                onClick={() => setIsRecordModalOpen(true)}
+                                            >
+                                                {t('addRecord')}
+                                            </Button>
+                                        )
+                                    }
+                                >
+                                    {!selectedDatabase ? (
+                                        <Alert
+                                            message={t('selectDatabase')}
+                                            type="info"
+                                            showIcon
+                                        />
+                                    ) : recordsLoading ? (
+                                        <Spin />
+                                    ) : (
+                                        <Table
+                                            columns={recordColumns}
+                                            dataSource={records}
+                                            rowKey="id"
+                                            pagination={{ pageSize: 10 }}
+                                            locale={{ emptyText: t('noRecords') }}
+                                        />
+                                    )}
+                                </Card>
+                            </Col>
+                        </Row>
+                    </Content>
+                    
+                    {/* Modal de criação de banco */}
+                    <Modal
+                        title={t('createDatabase')}
+                        open={isCreateModalOpen}
+                        onCancel={() => setIsCreateModalOpen(false)}
+                        footer={null}
+                    >
+                        <Form form={form} onFinish={handleCreateDatabase} layout="vertical">
+                            <Form.Item
+                                name="name"
+                                label={t('databaseName')}
+                                rules={[{ required: true, message: t('required') }]}
+                            >
+                                <Input />
+                            </Form.Item>
+                            
+                            <Form.Item>
+                                <Space>
+                                    <Button
+                                        type="primary"
+                                        htmlType="submit"
+                                        loading={createDatabaseMutation.isPending}
+                                    >
+                                        {t('save')}
+                                    </Button>
+                                    <Button onClick={() => setIsCreateModalOpen(false)}>
+                                        {t('cancel')}
+                                    </Button>
+                                </Space>
+                            </Form.Item>
+                        </Form>
+                    </Modal>
+                    
+                    {/* Modal de criação de registro */}
+                    <Modal
+                        title={t('addRecord')}
+                        open={isRecordModalOpen}
+                        onCancel={() => setIsRecordModalOpen(false)}
+                        footer={null}
+                        width={600}
+                    >
+                        <Form form={recordForm} onFinish={handleCreateRecord} layout="vertical">
+                            <Alert
+                                message="Adicione campos JSON dinamicamente"
+                                description="Você pode adicionar quantos campos quiser. Os valores serão salvos como JSON."
+                                type="info"
+                                style={{ marginBottom: 16 }}
+                            />
+                            
+                            <Form.Item
+                                name="nome"
+                                label="Nome"
+                            >
+                                <Input />
+                            </Form.Item>
+                            
+                            <Form.Item
+                                name="descricao"
+                                label="Descrição"
+                            >
+                                <Input.TextArea />
+                            </Form.Item>
+                            
+                            <Form.Item
+                                name="valor"
+                                label="Valor"
+                            >
+                                <Input />
+                            </Form.Item>
+                            
+                            <Form.Item
+                                name="categoria"
+                                label="Categoria"
+                            >
+                                <Input />
+                            </Form.Item>
+                            
+                            <Form.Item>
+                                <Space>
+                                    <Button
+                                        type="primary"
+                                        htmlType="submit"
+                                        loading={createRecordMutation.isPending}
+                                    >
+                                        {t('save')}
+                                    </Button>
+                                    <Button onClick={() => setIsRecordModalOpen(false)}>
+                                        {t('cancel')}
+                                    </Button>
+                                </Space>
+                            </Form.Item>
+                        </Form>
+                    </Modal>
+                </Layout>
+            );
+        };
+        
+        // Componente principal
+        const App = () => {
+            const { user, isLoading, isAuthenticated } = useAuth();
+            
+            if (isLoading) {
+                return (
+                    <div className="loading-spinner">
+                        <Spin size="large" />
+                    </div>
+                );
+            }
+            
+            return (
+                <div>
+                    <LanguageSelector />
+                    {isAuthenticated ? (
+                        <DatabaseManager user={user} />
+                    ) : (
+                        <AuthPage />
+                    )}
+                </div>
+            );
+        };
+        
+        // Renderizar aplicação
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(
+            <QueryClientProvider client={queryClient}>
+                <App />
+            </QueryClientProvider>
+        );
+    </script>
+</body>
+</html>
